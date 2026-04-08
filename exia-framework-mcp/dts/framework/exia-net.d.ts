@@ -431,4 +431,4 @@ declare class Crypto {
 }
 
 export { Crypto, HttpManager, HttpTask, Message, ReadNetFile, Socket, Ws, WsPacker };
-export type { HttpRequestMethod, HttpResponseDataType, HttpResponseType, IHttpEvent, IHttpRequest, IHttpResponse };
+export type { HttpRequestMethod, HttpResponseDataType, HttpResponseType, IHttpEvent, IHttpRequest, IHttpResponse, WsData };
