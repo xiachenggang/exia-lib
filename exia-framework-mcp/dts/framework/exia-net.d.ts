@@ -212,6 +212,131 @@ declare class Socket {
     onclose: (code: number, reason: string) => void;
 }
 
+/** 定义WebSocket数据类型 */
+type WsData = string | Blob | ArrayBufferView | ArrayBuffer;
+interface ISocket {
+    /** 连接成功时的回调 */
+    onConnected: () => void;
+    /** 收到消息时的回调 */
+    onMessage: (msg: WsData) => void;
+    /** 错误处理回调 */
+    onError: (error: string) => void;
+    /** 连接关闭时的回调 */
+    onClosed: () => void;
+    /**
+     * 连接到WebSocket服务器
+     * @param urlOrIp URL地址或IP地址
+     * @param port 端口号（可选）
+     * @returns 是否成功发起连接
+     */
+    connect(urlOrIp: string, port?: number): boolean;
+    /**
+     * 发送数据
+     * @param data 要发送的数据
+     * @returns 是否成功发送数据
+     */
+    send(data: WsData): boolean;
+    /**
+     * 关闭WebSocket连接
+     * @param code 关闭代码（可选）
+     * @param reason 关闭原因（可选）
+     */
+    close(code?: number, reason?: string): void;
+    /**
+     * 获取当前连接状态
+     * @returns 是否处于活动状态
+     */
+    isActive: boolean;
+}
+
+/** WebSocket类，实现ISocket接口 */
+declare class Ws implements ISocket {
+    private ws; /** WebSocket对象 */
+    /** 连接成功时的回调 */
+    onConnected(): void;
+    /** 收到消息时的回调 */
+    onMessage(msg: WsData): void;
+    /** 错误处理回调 */
+    onError(err: any): void;
+    /** 连接关闭时的回调 */
+    onClosed(): void;
+    /**
+     * 连接到WebSocket服务器
+     * @param urlOrIp URL地址或IP地址
+     * @param port 端口号（可选）
+     * @returns 是否成功发起连接
+     */
+    connect(urlOrIp: string, port?: number): boolean;
+    /**
+     * 发送数据
+     * @param data 指定格式数据
+     * @returns 是否发送成功
+     */
+    send(data: WsData): boolean;
+    /**
+     * 发送命令和数据
+     * @param cmd 主命令码
+     * @param buffer 数据
+     * @param key 加密密钥（可选）
+     * @returns 是否发送成功
+     */
+    sendBuffer(cmd: number, buffer: Uint8Array, key?: string): boolean;
+    /**
+     * 关闭WebSocket连接
+     * @param code 关闭代码（可选）
+     * @param reason 关闭原因（可选）
+     */
+    close(code?: number, reason?: string): void;
+    /**
+     * 获取当前连接状态
+     * @returns 是否处于活动状态
+     */
+    get isActive(): boolean;
+    /**
+     * 检查是否正在连接
+     * @returns 是否正在连接
+     */
+    private get isConnecting();
+}
+
+/** 消息结构 */
+declare class Message {
+    Cmd: number;
+    Data: Uint8Array;
+    constructor(Cmd: number, Data: Uint8Array);
+}
+/** 消息编码器，提供WebSocket消息的编码加密和解码解密功能 */
+declare class WsPacker {
+    /**
+     * 消息打包（使用大端序）
+     * @param msg 要打包的消息
+     * @param key 加密密钥（可选）
+     * @returns 打包后的字节数组
+     */
+    static Pack(msg: Message, key?: string): Uint8Array;
+    /**
+     * 消息解包（使用大端序）
+     * @param buffer 要解包的字节数组
+     * @param key 解密密钥（可选）
+     * @returns 解包后的消息
+     */
+    static Unpack(buffer: Uint8Array, key?: string): Message;
+    /**
+     * 通过 DataView 设置 Uint32 值（大端序）
+     * @param buffer 目标缓冲区
+     * @param offset 偏移量
+     * @param value 要设置的值
+     */
+    private static setUint32;
+    /**
+     * 通过 DataView 获取 Uint32 值（大端序）
+     * @param buffer 源缓冲区
+     * @param offset 偏移量
+     * @returns 获取的值
+     */
+    private static getUint32;
+}
+
 /**
  * @Description: 读取网络文件内容
  */
@@ -225,5 +350,85 @@ declare class ReadNetFile {
     });
 }
 
-export { HttpManager, HttpTask, ReadNetFile, Socket };
+declare class Crypto {
+    /**
+     * 文本加密函数
+     * @param plainText 明文文本
+     * @param key 加密密钥
+     * @returns 加密后的Base64字符串
+     */
+    static strEncrypt(plainText: string, key: string): string;
+    /**
+     * 文本解密函数
+     * @param cipherText 密文文本
+     * @param key 解密密钥
+     * @returns 解密后的明文
+     */
+    static strDecrypt(cipherText: string, key: string): string;
+    /**
+     * 二进制数据加密函数
+     * @param data 要加密的二进制数据
+     * @param key 加密密钥
+     * @returns 加密后的二进制数据
+     */
+    static byteEncrypt(data: Uint8Array, key: string): Uint8Array;
+    /**
+     * 二进制数据解密函数
+     * @param data 要解密的二进制数据
+     * @param key 解密密钥
+     * @returns 解密后的二进制数据
+     */
+    static byteDecrypt(data: Uint8Array, key: string): Uint8Array;
+    /**
+     * AES 加密
+     */
+    static aesEncrypt(msg: string, key: string, iv: string): string;
+    /**
+     * AES 解密
+     * @param str
+     * @param key
+     * @param iv
+     * @returns
+     */
+    static aesDecrypt(str: string, key: string, iv: string): string;
+    private static utf8Parse;
+    /**
+     * 生成随机 IV
+     * @returns 随机生成的 IV
+     */
+    private static generateRandomIV;
+    /**
+     * 获取加密密钥的WordArray格式
+     * @param key 密钥字符串
+     * @returns WordArray格式的密钥
+     */
+    private static getKeyString;
+    /**
+     * 将WordArray转换为Uint8Array
+     * @param wordArray 要转换的WordArray
+     * @returns 转换后的Uint8Array
+     */
+    private static wordArrayToUint8Array;
+    /**
+     * 将Uint8Array转换为WordArray
+     * @param byteArray 要转换的Uint8Array
+     * @returns 转换后的WordArray
+     */
+    private static uint8ArrayToWordArray;
+    /**
+     * md5加密方法
+     * @param data 需要加密的数据
+     * @returns 加密后的字符串
+     */
+    static md5(data: string): string;
+    /**
+     * md5签名方法
+     * @param data 需要加密的数据
+     * @param key 可选密钥
+     * @returns 加密后的字符串
+     */
+    static md5Sign(data: string, key: string): string;
+}
+
+export { Crypto, HttpManager, HttpTask, Message, ReadNetFile, Socket, Ws, WsPacker };
 export type { HttpRequestMethod, HttpResponseDataType, HttpResponseType, IHttpEvent, IHttpRequest, IHttpResponse };
