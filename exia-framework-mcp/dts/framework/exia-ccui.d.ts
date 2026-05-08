@@ -1,6 +1,17 @@
 import { Component, Node, Constructor } from 'cc';
 import { Module } from '@xiacg/exia-core';
 
+/**
+ * @Description: Bar 数据载体（HeaderInfo / BottomBarInfo 共享实现）
+ */
+declare class BarInfo<T> {
+    name: string;
+    /**
+     * 非类型安全工厂方法（适用于字符串名称动态创建）
+     */
+    static createByName<T = any>(name: string, userdata?: T): BarInfo<T>;
+}
+
 /** 窗口显示时对其他窗口的处理方式 */
 declare enum WindowType {
     Normal = 0,
@@ -41,17 +52,17 @@ interface IDecoratorInfo {
     };
 }
 
-interface IHeader<T = any> {
+interface IBar<T = any> {
     name: string;
     adapterType: AdapterType;
     isShowing(): boolean;
 }
 
 /**
- * @Description: 顶部资源栏基类（替换 GComponent → Component）
+ * @Description: Bar 通用基类（Header / BottomBar 共享实现）
  */
 
-declare abstract class Header<T = any> extends Component implements IHeader<T> {
+declare abstract class Bar<T = any> extends Component implements IBar<T> {
     adapterType: AdapterType;
     get name(): string;
     set name(v: string);
@@ -65,13 +76,19 @@ declare abstract class Header<T = any> extends Component implements IHeader<T> {
 }
 
 /**
+ * @Description: 顶部资源栏基类（类型区分子类）
+ */
+
+declare abstract class Header<T = any> extends Bar<T> {
+}
+
+/**
  * @Description: 顶部资源栏数据载体
  */
 
 type ExtractHeaderUserData<T> = T extends Header<infer U> ? U : any;
 type ExtractHeaderInstance<T> = T extends new () => infer R ? R : never;
-declare class HeaderInfo<T> {
-    name: string;
+declare class HeaderInfo<T> extends BarInfo<T> {
     /**
      * 类型安全工厂方法
      * @param ctor    Header 构造函数（需已注册 @uiheader 装饰器）
@@ -92,7 +109,7 @@ interface IWindow<TUserData = any, THeaderData = any> {
     isShowing(): boolean;
     isTop(): boolean;
     getHeaderInfo(): HeaderInfo<any>;
-    refreshHeader(): void;
+    refreshHeader(): Promise<void>;
 }
 
 /**
@@ -141,6 +158,32 @@ declare class WindowGroup {
 }
 
 /**
+ * @Description: 底部导航栏基类（类型区分子类）
+ */
+
+declare abstract class BottomBar<T = any> extends Bar<T> {
+}
+
+/**
+ * @Description: 底部导航栏数据载体
+ */
+
+type ExtractBottomBarUserData<T> = T extends BottomBar<infer U> ? U : any;
+type ExtractBottomBarInstance<T> = T extends new () => infer R ? R : never;
+declare class BottomBarInfo<T> extends BarInfo<T> {
+    /**
+     * 类型安全工厂方法
+     * @param ctor    BottomBar 构造函数（需已注册 @uibottombar 装饰器）
+     * @param userdata 传递给 BottomBar.onShow 的自定义数据
+     */
+    static create<T extends new () => BottomBar<any>>(ctor: T, userdata?: ExtractBottomBarUserData<ExtractBottomBarInstance<T>>): BottomBarInfo<ExtractBottomBarUserData<ExtractBottomBarInstance<T>>>;
+    /**
+     * 非类型安全工厂方法（适用于字符串名称动态创建）
+     */
+    static createByName<T = any>(name: string, userdata?: T): BottomBarInfo<T>;
+}
+
+/**
  * @Description: 窗口基类
  */
 
@@ -158,12 +201,25 @@ declare abstract class WindowBase<T = any, U = any> extends Component implements
     isTop(): boolean;
     /** 供 WindowManager 屏幕 resize 时调用 */
     screenResize(): void;
+    /**
+     * 根据插槽类型返回对应的 BarInfo
+     * BarRegistry.requestAll 调用此方法以统一获取各 slot 的 info。
+     * 子类无需覆盖此方法，只需实现 getHeaderInfo / getBottomBarInfo。
+     * 若未来新增 Bar 类型（如 SideBar），在此添加 case 即可。
+     */
+    getBarInfo(slotKey: string): BarInfo<any> | null;
     abstract getHeaderInfo(): HeaderInfo<any> | null;
     /**
      * 刷新/切换顶部 Header
      * 在同一窗口需要显示不同 Header 时调用（如 Tab 切换）
      */
-    refreshHeader(): void;
+    refreshHeader(): Promise<void>;
+    abstract getBottomBarInfo(): BottomBarInfo<any> | null;
+    /**
+     * 刷新/切换底部 BottomBar
+     * 在同一窗口需要显示不同 BottomBar 时调用（如 Tab 切换）
+     */
+    refreshBottomBar(): Promise<void>;
     /** 在窗口内部关闭自己，无需持有 WindowManager 引用 */
     protected removeSelf(): void;
     /** 窗口首次初始化（@uiprop 绑定已完成，可安全访问子节点） */
@@ -208,6 +264,11 @@ declare abstract class Window<T = any, U = any> extends WindowBase<T, U> {
      * 覆写此方法并返回 HeaderInfo 实例即可启用 Header 复用。
      */
     getHeaderInfo(): HeaderInfo<any> | null;
+    /**
+     * 返回 null 表示该窗口不使用底部 BottomBar。
+     * 覆写此方法并返回 BottomBarInfo 实例即可启用 BottomBar 复用。
+     */
+    getBottomBarInfo(): BottomBarInfo<any> | null;
 }
 
 /**
@@ -255,105 +316,40 @@ declare class WindowManager {
 
 /**
  * @Description: UI 装饰器（扩展版）
- *
- * 新增：
- *  @uicomponent(ComponentType, nodePath?)
- *    自动将子节点（或根节点）上的指定 Component 实例绑定到属性，
- *    无需在 onInit 中手动调用 getComponent。
- *
- * 其余装饰器与原版保持一致。
  */
 
 declare namespace _uidecorator {
     function getWindowMaps(): Map<any, IDecoratorInfo>;
     function getComponentMaps(): Map<any, IDecoratorInfo>;
+    function getBarMaps(slot: string): Map<any, IDecoratorInfo>;
+    /** @deprecated 请使用 getBarMaps('Header') */
     function getHeaderMaps(): Map<any, IDecoratorInfo>;
+    /** @deprecated 请使用 getBarMaps('BottomBar') */
+    function getBottomBarMaps(): Map<any, IDecoratorInfo>;
     /**
      * 窗口装饰器
-     * @param groupName         窗口组名
-     * @param prefabPath        预制体在 bundle 内的路径（不含扩展名）
-     * @param name              注册名（与类名相同，防混淆）
-     * @param inlinePrefabPaths 额外需要提前加载的预制体路径列表
-     * @param bundleName        所在 bundle，默认 "resources"
-     *
-     * @example
-     * // 预制体根节点已在编辑器挂好脚本（旧流程，兼容）
-     * @uiclass("MainGroup", "ui/ShopWindow", "ShopWindow")
-     *
-     * // 纯美术预制体，框架自动 addComponent（新流程）
-     * @uiclass("MainGroup", "ui/ShopWindow", "ShopWindow")
-     * export class ShopWindow extends Window { ... }
-     * // _createWindow 发现根节点没有 ShopWindow 组件时，自动 addComponent(ShopWindow)
      */
     function uiclass(groupName: string, prefabPath: string, name: string, inlinePrefabPaths?: string[] | string, bundleName?: string): Function;
     /** UI 自定义组件装饰器 */
     function uicom(prefabPath: string, name: string, bundleName?: string): Function;
     /** Header 装饰器 */
     function uiheader(prefabPath: string, name: string, bundleName?: string): Function;
+    /** BottomBar 装饰器 */
+    function uibottombar(prefabPath: string, name: string, bundleName?: string): Function;
     /**
      * 节点属性装饰器 —— 绑定子节点 Node
-     *
-     * @param nodePath 子节点路径（省略时使用属性名）
-     *
-     * @example
-     * @uiprop()               // 查找名为 "btnClose" 的子节点
-     * btnClose: Node;
-     *
-     * @uiprop('Panel/BtnClose')
-     * btnClose: Node;
      */
     function uiprop(nodePath?: string): (target: Object, propName: string) => void;
     /**
-     * 组件属性装饰器 —— 绑定子节点上的 Component 实例（新增）
-     *
-     * PropsHelper 会在序列化阶段自动调用 targetNode.getComponent(ComponentType)
-     * 并将结果赋值给该属性，无需在 onInit 手动获取。
-     *
-     * @param componentType  要获取的 Component 类型
-     * @param nodePath       子节点路径（省略时在根节点上找该组件）
-     *
-     * @example
-     * // 在根节点上找 Label 组件
-     * @uicomponent(Label)
-     * titleLabel: Label;
-     *
-     * // 在子节点 "Panel/LblGold" 上找 Label 组件
-     * @uicomponent(Label, 'Panel/LblGold')
-     * lblGold: Label;
-     *
-     * // 在子节点 "BtnBuy" 上找 Button 组件
-     * @uicomponent(Button, 'BtnBuy')
-     * btnBuy: Button;
-     *
-     * // 在子节点 "SpineNode" 上找自定义 sp.Skeleton 组件
-     * @uicomponent(sp.Skeleton, 'SpineNode')
-     * heroSpine: sp.Skeleton;
+     * 组件属性装饰器 —— 绑定子节点上的 Component 实例
      */
     function uicomponent<T extends Component>(componentType: Constructor<T>, nodePath?: string): (target: Object, propName: string) => void;
     /**
      * 点击事件装饰器
-     *
-     * @param nodePath 按钮节点路径
-     *
-     * @example
-     * @uiclick('btnClose')
-     * onBtnCloseClick(): void { this.removeSelf(); }
-     *
-     * @uiclick('Panel/BtnConfirm')
-     * onConfirm(): void { ... }
      */
     function uiclick(nodePath: string): (target: Object, _name: string, descriptor: PropertyDescriptor) => void;
     /**
      * 动画装饰器
-     *
-     * @param clipName Animation 组件中的 clip 名称（省略时使用属性名）
-     *
-     * @example
-     * @uitransition()
-     * openAnim: AnimationState;
-     *
-     * @uitransition('open')
-     * openAnim: AnimationState;
      */
     function uitransition(clipName?: string): (target: Object, propName: string) => void;
 }
@@ -386,4 +382,4 @@ declare class UIModule extends Module {
     private _onScreenResize;
 }
 
-export { AdapterType, CocosWindowContainer, Header, HeaderInfo, UIModule, Window, WindowGroup, WindowManager, WindowType, _uidecorator };
+export { AdapterType, Bar, BarInfo, BottomBar, BottomBarInfo, CocosWindowContainer, Header, HeaderInfo, UIModule, Window, WindowGroup, WindowManager, WindowType, _uidecorator };
